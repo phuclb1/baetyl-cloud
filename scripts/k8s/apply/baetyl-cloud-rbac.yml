@@ -2,7 +2,7 @@
 # kubectl delete -f baetyl-cloud-rbac.yml
 
 kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1beta1
+apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: baetyl-cloud-clusterrole
 rules:
@@ -11,7 +11,7 @@ rules:
     verbs: [ "get", "list", "watch", "create", "update", "patch", "delete" ]
 
 ---
-apiVersion: rbac.authorization.k8s.io/v1beta1
+apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: baetyl-cloud-rbac

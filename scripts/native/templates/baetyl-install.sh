@@ -5,7 +5,7 @@ DEPLOYYML="{{.InitApplyYaml}}"
 DB_PATH='{{.DBPath}}'
 TOKEN="{{.Token}}"
 MODE='{{.Mode}}'
-SUDO=sudo
+SUDO=
 
 exec_cmd_nobail() {	
   echo "+ $2 bash -c \"$1\""	

@@ -9,8 +9,9 @@ securityContext: {}
 
 image:
   # docker build -t baetyl-cloud:local-build -f Dockerfile-local .
-  repository: docker.io/baetyltech/baetyl-cloud
-  tag: v2.3.4
+  # repository: docker.io/baetyltech/baetyl-cloud
+  repository: baetyl-cloud
+  tag: local-phuc
   pullPolicy: IfNotPresent
 
 baetylCloud:

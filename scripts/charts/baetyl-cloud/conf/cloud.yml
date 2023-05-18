@@ -22,7 +22,7 @@ template:
 
 database:
   type: "mysql"
-  url: "root:secretpassword@(mariadb:3306)/baetyl_cloud?charset=utf8&parseTime=true"
+  url: "root:FkHoUlvJnn@(mariadb:3306)/baetyl_cloud?charset=utf8&parseTime=true"
 
 defaultpki:
   rootCAFile: "/etc/certs/client_ca.crt"
