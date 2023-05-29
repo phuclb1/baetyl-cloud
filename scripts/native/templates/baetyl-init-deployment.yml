@@ -8,7 +8,887 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: {{.EdgeNamespace}}
-
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: local-path
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: local-path-provisioner-service-account
+  namespace: app
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-api
+  namespace: app
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-frontend
+  namespace: app
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-stream
+  namespace: app
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: local-path-provisioner-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  - persistentvolumeclaims
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  - persistentvolumes
+  - pods
+  verbs:
+  - '*'
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: local-path-provisioner-bind
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: local-path-provisioner-role
+subjects:
+- kind: ServiceAccount
+  name: local-path-provisioner-service-account
+  namespace: app
+---
+apiVersion: v1
+data:
+  config.json: |-
+    {
+            "nodePathMap": [],
+            "sharedFileSystemPath": "/shared/fs"
+    }
+  helperPod.yaml: |-
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: helper-pod
+    spec:
+      containers:
+      - name: helper-pod
+        image: busybox
+        imagePullPolicy: IfNotPresent
+  setup: |-
+    #!/bin/sh
+    set -eu
+    mkdir -m 0777 -p "$VOL_DIR"
+  teardown: |-
+    #!/bin/sh
+    set -eu
+    rm -rf "$VOL_DIR"
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: local-path-config
+  namespace: app
+---
+apiVersion: v1
+data:
+  DEBUG: "true"
+  IMAGES_ROOT_PATH: /mnt/data/images
+  SQLITE_AUTO_MIGRATE: "false"
+  SQLITE_CONNECTION_STRING: /mnt/database/prod.db?cache=shared&mode=rwc&_fk=1
+  SQLITE_MIGRATION_PATH: database/migrations
+  STREAM_HTTP_ENDPOINT: http://localhost:8080/stream/live
+  STREAM_RTMP_ENDPOINT: rtmp://mve-stream.app.svc:1935/live
+  VA_CONFIG_PATH: /mnt/config/va_config.json
+  VA_ENGINE_ID: {{.NodeName}}
+  VIDEOS_ROOT_PATH: /mnt/data/videos
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-api-configmap
+  namespace: app
+---
+apiVersion: v1
+data:
+  VITE_API_ENDPOINT: http://localhost:8000/api/v1
+  VITE_APP_WEBSOCKET_URL: http://localhost:8000/ws
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-frontend-configmap
+  namespace: app
+---
+apiVersion: v1
+data:
+  srs.conf: |
+    listen              1935;
+    max_connections     1000;
+    daemon              off;
+    http_api {
+        enabled         on;
+        listen          1985;
+    }
+    http_server {
+        enabled         on;
+        listen          8080;
+    }
+    vhost __defaultVhost__ {
+        http_remux {
+            enabled     on;
+        }
+        hls {
+            enabled         on;
+            hls_dispose     30;
+        }
+    }
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-stream-configmap
+  namespace: app
+---
+apiVersion: v1
+data:
+  .dockerconfigjson: |
+    ewogICJhdXRocyI6IHsKICAgICIzNDc3Njg0Mjk0NjMuZGtyLmVjci5hcC1zb3V0aGVhc3
+    QtMS5hbWF6b25hd3MuY29tIjogewogICAgICAidXNlcm5hbWUiOiAiQVdTIiwKICAgICAg
+    InBhc3N3b3JkIjogInBhc3N3b3JkIgogICAgfQogIH0KfQo=
+kind: Secret
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: registry-secret
+  namespace: app
+type: kubernetes.io/dockerconfigjson
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-api
+  namespace: app
+spec:
+  ports:
+  - name: http
+    port: 8000
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/instance: mve-api
+    app.kubernetes.io/name: mve-api
+    app.kubernetes.io/version: 1.0.0
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-frontend
+  namespace: app
+spec:
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/instance: mve-frontend
+    app.kubernetes.io/name: mve-frontend
+    app.kubernetes.io/version: 1.0.0
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-stream
+  namespace: app
+spec:
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: http
+  - name: api
+    port: 1985
+    protocol: TCP
+    targetPort: api
+  - name: rtmp
+    port: 1935
+    protocol: TCP
+    targetPort: rtmp
+  selector:
+    app.kubernetes.io/component: stream
+    app.kubernetes.io/instance: mve-stream
+    app.kubernetes.io/name: mve-stream
+    app.kubernetes.io/version: 1.0.0
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: local-path-provisioner
+  namespace: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: local-path-provisioner
+      app.kubernetes.io/version: 1.0.0
+  template:
+    metadata:
+      labels:
+        app: local-path-provisioner
+        app.kubernetes.io/part-of: mve
+        app.kubernetes.io/version: 1.0.0
+    spec:
+      containers:
+      - command:
+        - local-path-provisioner
+        - --debug
+        - start
+        - --config
+        - /etc/config/config.json
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        image: rancher/local-path-provisioner:v0.0.24
+        imagePullPolicy: IfNotPresent
+        name: local-path-provisioner
+        volumeMounts:
+        - mountPath: /etc/config/
+          name: config-volume
+      serviceAccountName: local-path-provisioner-service-account
+      volumes:
+      - configMap:
+          name: local-path-config
+        name: config-volume
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-api
+  namespace: app
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api
+      app.kubernetes.io/instance: mve-api
+      app.kubernetes.io/name: mve-api
+      app.kubernetes.io/version: 1.0.0
+  strategy:
+    rollingUpdate:
+      maxSurge: 100%
+      maxUnavailable: 10%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: api
+        app.kubernetes.io/instance: mve-api
+        app.kubernetes.io/name: mve-api
+        app.kubernetes.io/part-of: mve
+        app.kubernetes.io/version: 1.0.0
+    spec:
+      containers:
+      - args:
+        - api
+        command:
+        - /app/server
+        env:
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        envFrom:
+        - configMapRef:
+            name: mve-api-configmap
+        image: phuclb1/edge:k3s
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /ready/liveliness
+            port: http
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: api
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /ready/readiness
+            port: http
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: "1"
+            memory: 2Gi
+        volumeMounts:
+        - mountPath: /mnt/data
+          name: data
+        - mountPath: /mnt/database
+          name: database
+        - mountPath: /mnt/config
+          name: config
+      imagePullSecrets: []
+      securityContext: {}
+      serviceAccountName: mve-api
+      volumes:
+      - hostPath:
+          path: /data/cluster_data/data
+          type: DirectoryOrCreate
+        name: data
+      - hostPath:
+          path: /data/cluster_data/database
+          type: DirectoryOrCreate
+        name: database
+      - hostPath:
+          path: /data/cluster_data/config
+          type: DirectoryOrCreate
+        name: config
+      - emptyDir: {}
+        name: tmp-dir
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-frontend
+  namespace: app
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/instance: mve-frontend
+      app.kubernetes.io/name: mve-frontend
+      app.kubernetes.io/version: 1.0.0
+  strategy:
+    rollingUpdate:
+      maxSurge: 100%
+      maxUnavailable: 10%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: frontend
+        app.kubernetes.io/instance: mve-frontend
+        app.kubernetes.io/name: mve-frontend
+        app.kubernetes.io/part-of: mve
+        app.kubernetes.io/version: 1.0.0
+    spec:
+      containers:
+      - env:
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        envFrom:
+        - configMapRef:
+            name: mve-frontend-configmap
+        image: phuclb1/edge-ui:k3s
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: web
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+          requests:
+            cpu: 128m
+            memory: 256Mi
+      imagePullSecrets: []
+      securityContext: {}
+      serviceAccountName: mve-frontend
+      volumes:
+      - emptyDir: {}
+        name: tmp-dir
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-stream
+  namespace: app
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: stream
+      app.kubernetes.io/instance: mve-stream
+      app.kubernetes.io/name: mve-stream
+      app.kubernetes.io/version: 1.0.0
+  strategy:
+    rollingUpdate:
+      maxSurge: 100%
+      maxUnavailable: 10%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: stream
+        app.kubernetes.io/instance: mve-stream
+        app.kubernetes.io/name: mve-stream
+        app.kubernetes.io/part-of: mve
+        app.kubernetes.io/version: 1.0.0
+    spec:
+      containers:
+      - env:
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        image: phuclb1/edge-stream:k3s
+        imagePullPolicy: IfNotPresent
+        name: stream
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 1985
+          name: api
+          protocol: TCP
+        - containerPort: 1935
+          name: rtmp
+          protocol: TCP
+        resources:
+          limits:
+            cpu: "4"
+            memory: 8Gi
+          requests:
+            cpu: "1"
+            memory: 2Gi
+      imagePullSecrets: []
+      securityContext: {}
+      serviceAccountName: mve-stream
+      volumes:
+      - emptyDir: {}
+        name: tmp-dir
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  labels:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/instance: mve-api
+    app.kubernetes.io/name: mve-api
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-api
+  namespace: app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api
+      app.kubernetes.io/instance: mve-api
+      app.kubernetes.io/name: mve-api
+      app.kubernetes.io/version: 1.0.0
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  labels:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/instance: mve-frontend
+    app.kubernetes.io/name: mve-frontend
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-frontend
+  namespace: app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/instance: mve-frontend
+      app.kubernetes.io/name: mve-frontend
+      app.kubernetes.io/version: 1.0.0
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  labels:
+    app.kubernetes.io/component: stream
+    app.kubernetes.io/instance: mve-stream
+    app.kubernetes.io/name: mve-stream
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-stream
+  namespace: app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: stream
+      app.kubernetes.io/instance: mve-stream
+      app.kubernetes.io/name: mve-stream
+      app.kubernetes.io/version: 1.0.0
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  labels:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/instance: mve-api
+    app.kubernetes.io/name: mve-api
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-api
+  namespace: app
+spec:
+  maxReplicas: 2
+  metrics:
+  - resource:
+      name: cpu
+      target:
+        averageUtilization: 80
+        type: Utilization
+    type: Resource
+  - resource:
+      name: memory
+      target:
+        averageUtilization: 70
+        type: Utilization
+    type: Resource
+  minReplicas: 1
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mve-api
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  labels:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/instance: mve-frontend
+    app.kubernetes.io/name: mve-frontend
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-frontend
+  namespace: app
+spec:
+  maxReplicas: 2
+  metrics:
+  - resource:
+      name: cpu
+      target:
+        averageUtilization: 80
+        type: Utilization
+    type: Resource
+  - resource:
+      name: memory
+      target:
+        averageUtilization: 70
+        type: Utilization
+    type: Resource
+  minReplicas: 1
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mve-frontend
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  labels:
+    app.kubernetes.io/component: stream
+    app.kubernetes.io/instance: mve-stream
+    app.kubernetes.io/name: mve-stream
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-stream
+  namespace: app
+spec:
+  maxReplicas: 2
+  metrics:
+  - resource:
+      name: cpu
+      target:
+        averageUtilization: 80
+        type: Utilization
+    type: Resource
+  - resource:
+      name: memory
+      target:
+        averageUtilization: 70
+        type: Utilization
+    type: Resource
+  minReplicas: 1
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mve-stream
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    ingress.kubernetes.io/ssl-redirect: "false"
+  labels:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/instance: mve-api
+    app.kubernetes.io/name: mve-api
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-api
+  namespace: app
+spec:
+  rules:
+  - http:
+      paths:
+      - backend:
+          service:
+            name: mve-api
+            port:
+              number: 8000
+        path: /api/v1
+        pathType: ImplementationSpecific
+      - backend:
+          service:
+            name: mve-api
+            port:
+              number: 8000
+        path: /ws
+        pathType: ImplementationSpecific
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-api
+  namespace: app
+spec:
+  entryPoints:
+  - web
+  routes:
+  - kind: Rule
+    match: PathPrefix(`/api/v1`)
+    middlewares:
+    - name: custom-header
+    services:
+    - name: mve-api
+      port: 8000
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-frontend
+  namespace: app
+spec:
+  entryPoints:
+  - web
+  routes:
+  - kind: Rule
+    match: PathPrefix(`/`)
+    middlewares:
+    - name: custom-header
+    services:
+    - name: mve-frontend
+      port: 80
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: mve-stream
+  namespace: app
+spec:
+  entryPoints:
+  - web
+  routes:
+  - kind: Rule
+    match: PathPrefix(`/stream`)
+    middlewares:
+    - name: stripprefix
+    - name: custom-header
+    services:
+    - name: mve-stream
+      port: 8080
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: custom-header
+  namespace: app
+spec:
+  headers:
+    accessControlAllowHeaders:
+    - '*'
+    accessControlAllowMethods:
+    - GET
+    - OPTIONS
+    - PUT
+    - POST
+    - DELETE
+    - PUT
+    accessControlAllowOriginList:
+    - '*'
+    accessControlMaxAge: 100
+    addVaryHeader: true
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  labels:
+    app.kubernetes.io/part-of: mve
+    app.kubernetes.io/version: 1.0.0
+  name: stripprefix
+  namespace: app
+spec:
+  stripPrefix:
+    prefixes:
+    - /stream
+    - /api/v1
 ---
 apiVersion: v1
 kind: ServiceAccount
